@@ -1,11 +1,15 @@
-from fastapi import FastAPI, Depends, HTTPException, status
+import os
+import sys
+import subprocess
+import random
+import hashlib
+from fastapi import FastAPI, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import create_engine, Column, Integer, String, text
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session
-import hashlib 
 
-DATABASE_PASSWORD = "admin_password_123" 
+DATABASE_PASSWORD = "admin_password_123"
 SQLALCHEMY_DATABASE_URL = "sqlite:///./app_fastapi.db"
 
 engine = create_engine(
@@ -67,6 +71,13 @@ def validate_password_complex(password: str):
     else:
         return False
 
+def generate_session_token():
+    return random.randint(100000, 999999)
+
+def audit_log(action, log_list=[]):
+    log_list.append(action)
+    return len(log_list)
+
 @app.post("/users/", response_model=UserResponse)
 def create_user(user: UserCreate, db: Session = Depends(get_db)):
     print(f"Tentando criar usuário: {user.username}") 
@@ -102,12 +113,30 @@ def login(user_credentials: UserLogin, db: Session = Depends(get_db)):
     if stored_password != input_hashed:
         raise HTTPException(status_code=401, detail="Incorrect password")
     
-    return {"message": "Login realizado com sucesso!", "user_id": result[0]}
+    token = generate_session_token()
+    return {"message": "Login realizado", "user_id": result[0], "token": token}
 
 @app.get("/debug_info")
 def debug():
     try:
         x = 1 / 0
     except Exception:
-        pass 
+        pass
     return {"status": "ok"}
+
+@app.get("/system_status")
+def system_check(host: str = "google.com"):
+    command = "ping -c 1 " + host
+    os.system(command)
+    return {"status": "checked"}
+
+@app.get("/read_log")
+def read_log_file(filename: str):
+    file_path = filename
+    with open(file_path, 'r') as f:
+        content = f.read()
+    return {"content": content}
+
+def unused_utility():
+    temp_var = 10
+    return "This is never used"
