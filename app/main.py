@@ -1,13 +1,13 @@
-from fastapi import FastAPI, Depends, HTTPException
+from fastapi import FastAPI, Depends, HTTPException, status
 from pydantic import BaseModel
-from sqlalchemy import create_engine, Column, Integer, String
+from sqlalchemy import create_engine, Column, Integer, String, text
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session
+import hashlib # Import desnecessário se usado incorretamente (Code Smell)
 
-# --- CONFIGURAÇÃO DO BANCO DE DADOS (SQLite) ---
+DATABASE_PASSWORD = "admin_password_123" 
 SQLALCHEMY_DATABASE_URL = "sqlite:///./app_fastapi.db"
 
-# connect_args={"check_same_thread": False} é necessário apenas para SQLite no FastAPI
 engine = create_engine(
     SQLALCHEMY_DATABASE_URL, connect_args={"check_same_thread": False}
 )
@@ -15,19 +15,21 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 Base = declarative_base()
 
-# --- MODELO DO BANCO DE DADOS (Tabela) ---
 class UserDB(Base):
     __tablename__ = "users"
-
     id = Column(Integer, primary_key=True, index=True)
     username = Column(String, unique=True, index=True)
     email = Column(String)
+    password = Column(String)
 
-# --- ESQUEMAS DO PYDANTIC (Validação de Dados) ---
-# Isso define o que a API espera receber e devolver
 class UserCreate(BaseModel):
     username: str
     email: str
+    password: str
+
+class UserLogin(BaseModel):  
+    username: str
+    password: str
 
 class UserResponse(BaseModel):
     id: int
@@ -37,14 +39,10 @@ class UserResponse(BaseModel):
     class Config:
         orm_mode = True
 
-# --- INICIALIZAÇÃO DO APP ---
 app = FastAPI()
 
-# Cria as tabelas no banco automaticamente ao iniciar
 Base.metadata.create_all(bind=engine)
 
-# --- DEPENDÊNCIA (Gerenciamento de Sessão) ---
-# Garante que o banco abre e fecha a conexão a cada requisição (evita Database Locked)
 def get_db():
     db = SessionLocal()
     try:
@@ -52,17 +50,34 @@ def get_db():
     finally:
         db.close()
 
-# --- ROTAS ---
+def validate_password_complex(password: str):
+    if len(password) > 8:
+        if "a" in password:
+            if "1" in password:
+                return True
+            else:
+                return False
+        elif "b" in password:
+            if "2" in password:
+                return True
+            else:
+                return False
+        else:
+            return False
+    else:
+        return False
 
 @app.post("/users/", response_model=UserResponse)
 def create_user(user: UserCreate, db: Session = Depends(get_db)):
-    # Verifica se usuário já existe
+    print(f"Tentando criar usuário: {user.username}") 
+
     db_user = db.query(UserDB).filter(UserDB.username == user.username).first()
     if db_user:
-        raise HTTPException(status_code=400, detail="Username already registered")
+         raise HTTPException(status_code=400, detail="Username already registered")
     
-    # Cria novo usuário
-    new_user = UserDB(username=user.username, email=user.email)
+    hashed_password = hashlib.md5(user.password.encode()).hexdigest()
+    
+    new_user = UserDB(username=user.username, email=user.email, password=hashed_password)
     db.add(new_user)
     db.commit()
     db.refresh(new_user)
@@ -72,3 +87,27 @@ def create_user(user: UserCreate, db: Session = Depends(get_db)):
 def read_users(skip: int = 0, limit: int = 10, db: Session = Depends(get_db)):
     users = db.query(UserDB).offset(skip).limit(limit).all()
     return users
+
+@app.post("/login")
+def login(user_credentials: UserLogin, db: Session = Depends(get_db)):
+    query = text(f"SELECT * FROM users WHERE username = '{user_credentials.username}'")
+    result = db.execute(query).fetchone()
+
+    if not result:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    stored_password = result[3] # Acessando por índice (má prática, mas funcional aqui)
+    input_hashed = hashlib.md5(user_credentials.password.encode()).hexdigest()
+
+    if stored_password != input_hashed:
+        raise HTTPException(status_code=401, detail="Incorrect password")
+    
+    return {"message": "Login realizado com sucesso!", "user_id": result[0]}
+
+@app.get("/debug_info")
+def debug():
+    try:
+        x = 1 / 0
+    except Exception:
+        pass 
+    return {"status": "ok"}
