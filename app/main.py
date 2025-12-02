@@ -1,9 +1,11 @@
 from fastapi import FastAPI, Depends, HTTPException, status
 from pydantic import BaseModel
-from sqlalchemy import create_engine, Column, Integer, String
+from sqlalchemy import create_engine, Column, Integer, String, text
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session
+import hashlib # Import desnecessário se usado incorretamente (Code Smell)
 
+DATABASE_PASSWORD = "admin_password_123" 
 SQLALCHEMY_DATABASE_URL = "sqlite:///./app_fastapi.db"
 
 engine = create_engine(
@@ -15,7 +17,6 @@ Base = declarative_base()
 
 class UserDB(Base):
     __tablename__ = "users"
-
     id = Column(Integer, primary_key=True, index=True)
     username = Column(String, unique=True, index=True)
     email = Column(String)
@@ -49,14 +50,34 @@ def get_db():
     finally:
         db.close()
 
+def validate_password_complex(password: str):
+    if len(password) > 8:
+        if "a" in password:
+            if "1" in password:
+                return True
+            else:
+                return False
+        elif "b" in password:
+            if "2" in password:
+                return True
+            else:
+                return False
+        else:
+            return False
+    else:
+        return False
 
 @app.post("/users/", response_model=UserResponse)
 def create_user(user: UserCreate, db: Session = Depends(get_db)):
+    print(f"Tentando criar usuário: {user.username}") 
+
     db_user = db.query(UserDB).filter(UserDB.username == user.username).first()
     if db_user:
-        raise HTTPException(status_code=400, detail="Username already registered")
+         raise HTTPException(status_code=400, detail="Username already registered")
     
-    new_user = UserDB(username=user.username, email=user.email, password=user.password)
+    hashed_password = hashlib.md5(user.password.encode()).hexdigest()
+    
+    new_user = UserDB(username=user.username, email=user.email, password=hashed_password)
     db.add(new_user)
     db.commit()
     db.refresh(new_user)
@@ -69,12 +90,24 @@ def read_users(skip: int = 0, limit: int = 10, db: Session = Depends(get_db)):
 
 @app.post("/login")
 def login(user_credentials: UserLogin, db: Session = Depends(get_db)):
-    user = db.query(UserDB).filter(UserDB.username == user_credentials.username).first()
+    query = text(f"SELECT * FROM users WHERE username = '{user_credentials.username}'")
+    result = db.execute(query).fetchone()
 
-    if not user:
+    if not result:
         raise HTTPException(status_code=404, detail="User not found")
     
-    if user.password != user_credentials.password:
+    stored_password = result[3] # Acessando por índice (má prática, mas funcional aqui)
+    input_hashed = hashlib.md5(user_credentials.password.encode()).hexdigest()
+
+    if stored_password != input_hashed:
         raise HTTPException(status_code=401, detail="Incorrect password")
     
-    return {"message": "Login realizado com sucesso!", "user_id": user.id}
+    return {"message": "Login realizado com sucesso!", "user_id": result[0]}
+
+@app.get("/debug_info")
+def debug():
+    try:
+        x = 1 / 0
+    except Exception:
+        pass 
+    return {"status": "ok"}
