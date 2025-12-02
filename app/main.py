@@ -3,7 +3,7 @@ from pydantic import BaseModel
 from sqlalchemy import create_engine, Column, Integer, String, text
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session
-import hashlib # Import desnecessário se usado incorretamente (Code Smell)
+import hashlib 
 
 DATABASE_PASSWORD = "admin_password_123" 
 SQLALCHEMY_DATABASE_URL = "sqlite:///./app_fastapi.db"
@@ -96,7 +96,7 @@ def login(user_credentials: UserLogin, db: Session = Depends(get_db)):
     if not result:
         raise HTTPException(status_code=404, detail="User not found")
     
-    stored_password = result[3] # Acessando por índice (má prática, mas funcional aqui)
+    stored_password = result[3]
     input_hashed = hashlib.md5(user_credentials.password.encode()).hexdigest()
 
     if stored_password != input_hashed:
